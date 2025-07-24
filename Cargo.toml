@@ -1,0 +1,23 @@
+[package]
+name = "web-transport-rs-sample"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/bin/client.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+web-transport-quinn = "0.7.3"
+anyhow = "1"
+clap = { version = "4.0", features = ["derive"] }
+env_logger = "0.11.8"
+url = "2"
+
+rustls-pemfile = "2"
+log = "0.4.27"
