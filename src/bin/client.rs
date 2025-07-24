@@ -35,11 +35,13 @@ async fn main() -> anyhow::Result<()> {
 
     log::info!("Connected");
 
-    let (mut send, mut recv) = session.open_bi().await?;
+    // let (mut send, mut recv) = session.open_bi().await?;
 
     log::info!("Created stream");
 
     for i in 0..5 {
+        let (mut send, mut recv) = session.open_bi().await?;
+
         log::info!("Sending message {}", i + 1);
         let msg = "Hello!, world!".to_string();
         send.write_all(msg.as_bytes()).await?;

@@ -73,14 +73,21 @@ async fn run_session(session: Session) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             res = session.accept_bi() => {
-                let (mut send, mut recv) = res?;
-                log::info!("Accepted stream");
+                match res {
+                    Ok((send, recv)) => {
+                        log::info!("Accepted stream");
 
-                let msg = recv.read_to_end(1024).await?;
-                log::info!("Recv: {}", String::from_utf8_lossy(&msg));
-
-                send.write_all(&msg).await?;
-                log::info!("Send: {}", String::from_utf8_lossy(&msg));
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_bi_stream(send, recv).await {
+                                log::error!("Failed to handle stream: {}", e);
+                            }
+                        });
+                    }
+                    Err(err) => {
+                        log::error!("Failed to accept stream: {}", err);
+                        return Err(err.into());
+                    }
+                }
             },
             res = session.read_datagram() => {
                 let msg = res?;
@@ -94,4 +101,20 @@ async fn run_session(session: Session) -> anyhow::Result<()> {
 
         log::info!("Echo successful!");
     }
+}
+
+async fn handle_bi_stream(
+    mut send: web_transport_quinn::SendStream,
+    mut recv: web_transport_quinn::RecvStream,
+) -> anyhow::Result<()> {
+    log::info!("Handling bidirectional stream");
+
+    let msg = recv.read_to_end(1024).await?;
+    log::info!("Stream received: {}", String::from_utf8_lossy(&msg));
+
+    send.write_all(&msg).await?;
+    send.finish()?;
+
+    log::info!("Stream sent: {}", String::from_utf8_lossy(&msg));
+    Ok(())
 }
