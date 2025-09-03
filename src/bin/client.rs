@@ -1,8 +1,12 @@
 use anyhow::Context;
+use bincode::{Decode, Encode};
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use std::{fs, io, path};
 use url::Url;
 use web_transport_quinn::quinn::rustls::pki_types::CertificateDer;
+
+use web_transport_rs_sample::operate_pcd::{load_pcd, PointXYZ};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -13,11 +17,95 @@ struct Args {
     pub tls_cert: path::PathBuf,
 }
 
+#[derive(Debug, Serialize, Deserialize, Encode, Decode)]
+struct PointChunk {
+    chunk_id: u32,
+    total_chunks: u32,
+    points: Vec<PointXYZ>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Encode, Decode)]
+struct TransmissionComplete {
+    total_points: usize,
+    total_chunks: usize,
+}
+
+async fn send_pcd_unreliable(
+    session: &web_transport_quinn::Session,
+    pcd_data: &[PointXYZ],
+    chunk_size: usize,
+    send_interval_ms: u64,
+) -> anyhow::Result<()> {
+    let start_time = std::time::Instant::now();
+
+    let chunks : Vec<&[PointXYZ]> = pcd_data.chunks(chunk_size).collect();
+    let total_chunks = chunks.len() as u32;
+
+    log::info!(
+        "Sending {} points in {} chunks via unreliable stream",
+        pcd_data.len(),
+        total_chunks
+    );
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let chunk_data = PointChunk {
+            chunk_id: i as u32,
+            total_chunks,
+            points: chunk.to_vec(),
+        };
+
+        let serialized = bincode::encode_to_vec(&chunk_data, bincode::config::standard())?;
+        let serialized_size = serialized.len();
+
+        // Send datagram
+        session.send_datagram(serialized.into())
+            .context("Failed to send datagram")?;
+
+        log::debug!(
+            "Sent chunk {}/{} ({} points, {} bytes)",
+            i + 1,
+            total_chunks,
+            chunk.len(),
+            serialized_size
+        );
+
+        // tokio::time::sleep(tokio::time::Duration::from_millis(send_interval_ms)).await;
+    }
+
+    let completion = TransmissionComplete {
+        total_points: pcd_data.len(),
+        total_chunks: total_chunks as usize,
+    };
+    let completion_data = bincode::encode_to_vec(&completion, bincode::config::standard())?;
+    session.send_datagram(completion_data.into())?;
+
+    let elapsed = start_time.elapsed();
+
+    log::debug!("Sent transmission complete message");
+    log::info!("Send time: {:?}", elapsed);
+
+    Ok(())
+}
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
     let env = env_logger::Env::default().default_filter_or("info");
     env_logger::init_from_env(env);
 
+    // Load the pcd file
+    let pcd_file_path = "data/input/H927-room.pcd";
+    let pcd = match load_pcd(pcd_file_path) {
+        Ok(points) => {
+            println!("Loaded {} points from {}", points.len(), pcd_file_path);
+            points
+        }
+        Err(e) => {
+            eprintln!("Error loading PCD file: {}", e);
+            return Err(e);
+        }
+    };
+
+    // WebTransport
     let args = Args::parse();
 
     let chain = fs::File::open(args.tls_cert).context("Failed to open cert file")?;
@@ -35,23 +123,21 @@ async fn main() -> anyhow::Result<()> {
 
     log::info!("Connected");
 
-    let (mut send, mut recv) = session.open_bi().await?;
+    let chunk_size = 110;
 
-    log::info!("Created stream");
-
-    for i in 0..5 {
-        log::info!("Sending message {}", i + 1);
-        let msg = "Hello!, world!".to_string();
-        send.write_all(msg.as_bytes()).await?;
-        log::info!("Sent: {}", msg);
-
-        send.finish()?;
-
-        let msg = recv.read_to_end(1024).await?;
-        log::info!("Recv: {}", String::from_utf8_lossy(&msg));
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    match send_pcd_unreliable(&session, &pcd, chunk_size, 5).await {
+        Ok(_) => {
+            log::info!("Successfully sent all PCD data");
+        }
+        Err(e) => {
+            log::error!("Failed to send PCD data: {}", e);
+            return Err(e.into());
+        }
     }
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    log::info!("Client shutting down");
 
     Ok(())
 }
