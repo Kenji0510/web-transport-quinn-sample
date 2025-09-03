@@ -70,6 +70,7 @@ async fn send_pcd_unreliable(
         );
 
         // tokio::time::sleep(tokio::time::Duration::from_millis(send_interval_ms)).await;
+        // tokio::time::sleep(tokio::time::Duration::from_micros(send_interval_ms)).await;
     }
 
     let completion = TransmissionComplete {
@@ -93,7 +94,7 @@ async fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env(env);
 
     // Load the pcd file
-    let pcd_file_path = "data/input/H927-room.pcd";
+    let pcd_file_path = "data/input/Sample01.pcd";
     let pcd = match load_pcd(pcd_file_path) {
         Ok(points) => {
             println!("Loaded {} points from {}", points.len(), pcd_file_path);
@@ -125,7 +126,7 @@ async fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
 
     let chunk_size = 110;
 
-    match send_pcd_unreliable(&session, &pcd, chunk_size, 5).await {
+    match send_pcd_unreliable(&session, &pcd, chunk_size, 1).await {
         Ok(_) => {
             log::info!("Successfully sent all PCD data");
         }
@@ -135,7 +136,7 @@ async fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
     log::info!("Client shutting down");
 

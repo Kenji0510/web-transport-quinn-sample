@@ -34,7 +34,7 @@ struct TransmissionComplete {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let env = env_logger::Env::default().default_filter_or("debug");
+    let env = env_logger::Env::default().default_filter_or("info");
     env_logger::init_from_env(env);
 
     let args = Args::parse();
@@ -118,7 +118,7 @@ async fn run_session(session: Session) -> anyhow::Result<()> {
                     Err(_) => {
                         match bincode::decode_from_slice::<TransmissionComplete, _>(&msg, bincode::config::standard()) {
                             Ok((completion, _)) => {
-                                log::debug!(
+                                log::info!(
                                     "Transmission complete! Total points: {}, Total chunks: {}",
                                     completion.total_points,
                                     completion.total_chunks
